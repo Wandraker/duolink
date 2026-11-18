@@ -58,6 +58,22 @@ button,input{font:inherit;color:inherit}
 .src .nm::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--col)}
 .src .v{color:var(--dim);font-size:13px;padding-left:16px}
 .src .v b{color:var(--text);font-weight:600}
+.src{position:relative}
+.src .nm .l{display:inline-block}
+/* a link joining: letters rise in one by one, a blue wave sweeps over it */
+.src.enter .nm .l{animation:dl-letter .55s cubic-bezier(.2,.7,.2,1) both;animation-delay:calc(var(--i)*38ms)}
+@keyframes dl-letter{
+  0%{opacity:0;transform:translateY(7px);filter:blur(5px);color:#8FB0FF;text-shadow:0 0 12px rgba(91,140,255,.9)}
+  60%{opacity:1;color:#B9CCFF;text-shadow:0 0 10px rgba(91,140,255,.55)}
+  100%{opacity:1;transform:none;filter:none;color:inherit;text-shadow:none}}
+.src.enter .nm::before{animation:dl-dot .45s cubic-bezier(.3,1.6,.5,1) both}
+@keyframes dl-dot{from{transform:scale(0)}to{transform:scale(1)}}
+.src.enter .v{animation:dl-reveal .6s cubic-bezier(.2,.7,.2,1) both;animation-delay:.28s}
+@keyframes dl-reveal{from{clip-path:inset(0 100% 0 0);opacity:.2}to{clip-path:inset(0 0 0 0);opacity:1}}
+.src.enter::after{content:"";position:absolute;inset:-6px -12px;border-radius:8px;pointer-events:none;
+  background:linear-gradient(90deg,transparent 0%,rgba(91,140,255,.22) 42%,rgba(150,182,255,.5) 50%,transparent 58%);
+  background-size:260% 100%;animation:dl-wave 1.05s ease-out both}
+@keyframes dl-wave{from{background-position:120% 0;opacity:1}to{background-position:-40% 0;opacity:0}}
 .src.off .nm{color:var(--faint)}
 .src.off .nm::before{background:transparent;box-shadow:inset 0 0 0 1.5px var(--faint)}
 .braid{position:relative;min-width:0}
@@ -120,6 +136,20 @@ button,input{font:inherit;color:inherit}
 .ch.off .nm{color:var(--faint)}
 .ch.off .nm::before{background:transparent;box-shadow:inset 0 0 0 1.5px var(--faint)}
 
+/* TUN */
+.tunbox{display:flex;gap:24px;align-items:flex-start;padding:20px 22px;border-radius:var(--r-m);
+  background:var(--raise);border:1px solid var(--line);margin-bottom:30px}
+.tunbox .tx{flex:1}
+.tunbox h3{font:600 17px var(--display);margin:0 0 6px}
+.tunbox p{color:var(--dim);margin:0;max-width:66ch}
+.tunbox .st{margin-top:10px;font-size:13px;color:var(--dim)}
+.tunbox .st.on{color:var(--ok)}
+.tunbox .st.bad{color:var(--bad)}
+.tunbox.on{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
+.badge{font-size:12px;font-weight:600;color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 50%,transparent);
+  border-radius:999px;padding:2px 9px}
+.sub{font:600 13px var(--ui);color:var(--dim);margin:0 0 14px}
+
 /* proxy + settings */
 .cols{display:grid;grid-template-columns:1fr 1fr;gap:40px}
 .blk h3{font:600 16px var(--display);margin:0 0 8px}
@@ -160,6 +190,7 @@ ol.steps b{color:var(--text);font-weight:600}
         <path d="M15.4 13H21" stroke="#F2F5FA" stroke-width="3.6" stroke-linecap="round"/></svg>
       Duolink
     </div>
+    <span class="badge" id="tunBadge" hidden></span>
     <div class="sp"></div>
     <label class="merge" title="">
       <span data-t="mergeLbl"></span><b id="mergeState"></b>
@@ -198,6 +229,15 @@ ol.steps b{color:var(--text);font-weight:600}
   <section class="panel" id="p-chs" hidden><div class="chs" id="chs"></div></section>
 
   <section class="panel" id="p-prx" hidden>
+    <div class="tunbox" id="tunBox">
+      <div class="tx">
+        <h3 data-t="tunT"></h3>
+        <p data-t="tunP"></p>
+        <div class="st" id="tunState"></div>
+      </div>
+      <span class="sw"><input type="checkbox" id="tun" aria-label=""><i></i></span>
+    </div>
+    <p class="sub" data-t="pxOr"></p>
     <div class="cols">
       <div class="blk">
         <h3 data-t="pxTitle"></h3>
@@ -233,15 +273,15 @@ ol.steps b{color:var(--text);font-weight:600}
 <script>
 "use strict";
 const T={
-ru:{mergeLbl:"Объединение",on:"включено",off:"выключено",unitNow:"Мбит/с сейчас",tabDl:"Загрузки",tabCh:"Каналы",tabPx:"Прокси",tabSet:"Настройки",
+ru:{mergeLbl:"Объединение",on:"включено",off:"выключено",unitNow:"Мбит/с сейчас",tabDl:"Загрузки",tabCh:"Каналы",tabPx:"Программы",tabSet:"Настройки",
   download:"Скачать",urlPh:"Вставьте ссылку на файл",
   emptyDl:"Вставьте ссылку на файл, и он скачается через все каналы сразу. Каждый канал берёт столько, сколько тянет.",
   cable:"Кабель",phone:"Телефон",wifi:"Wi-Fi",other:"Сеть",
   noCh:"Duolink не видит подключений к интернету. Подключите кабель, Wi-Fi или телефон в режиме USB-модема.",
   oneCh:"Сейчас работает одно подключение. Подключите второе, например телефон по USB, и Duolink сам добавит его.",
   mergeOffNote:"Объединение выключено: весь трафик идёт через самый быстрый канал, как без Duolink.",
-  idle:"ждёт трафика",down:"нет связи",disabled:"выключен",ping:"пинг",share:"доля",speed:"скорость",got:"принято",ms:"мс",
-  queued:"В очереди",running:"Качается",done:"Готово",failed:"Ошибка",canceled:"Отменено",
+  idle:"ждёт трафика",reserve:"в запасе",tunT:"Все программы через Duolink",tunP:"Duolink создаёт виртуальный сетевой адаптер, и через все каналы идут Hydra, Steam, игры и вообще любые программы, без настройки. Нужны права администратора: Windows спросит разрешение.",tunOn:"Включено: весь трафик компьютера идёт через Duolink",tunOff:"Выключено: через Duolink идут только загрузки здесь и программы с прокси",tunElev:"Перезапускаю Duolink с правами администратора. Подтвердите запрос Windows.",tunNo:"Windows не дала прав администратора, режим не включён.",tunBadge:"все программы",pxOr:"Или прокси для отдельных программ",down:"нет связи",disabled:"выключен",ping:"пинг",share:"доля",speed:"скорость",got:"принято",ms:"мс",
+  queued:"В очереди",connecting:"Подключаюсь к серверу",running:"Качается",paused:"На паузе",pause:"Пауза",resume:"Продолжить",retry:"Повторить",remove:"Убрать",done:"Готово",failed:"Ошибка",canceled:"Отменено",
   showFile:"Показать в папке",cancel:"Отменить",left:"осталось",single:"Сервер отдаёт файл одним потоком, поэтому он идёт через один канал.",
   pxTitle:"Прокси для других программ",
   pxText:"Укажите этот адрес в настройках прокси программы, и её соединения пойдут через все каналы. Подходит для qBittorrent, браузеров и Telegram.",
@@ -252,15 +292,15 @@ ru:{mergeLbl:"Объединение",on:"включено",off:"выключе�
   dirT:"Папка загрузок",open:"Открыть",
   limT:"Что ускоряется",limS:"Загрузки здесь, торренты и браузер через прокси. Одно соединение, например онлайн-игра или звонок, всегда идёт через один канал.",
   mbit:"Мбит/с",mb:"МБ",gb:"ГБ",kb:"КБ"},
-en:{mergeLbl:"Combining",on:"on",off:"off",unitNow:"Mbit/s right now",tabDl:"Downloads",tabCh:"Connections",tabPx:"Proxy",tabSet:"Settings",
+en:{mergeLbl:"Combining",on:"on",off:"off",unitNow:"Mbit/s right now",tabDl:"Downloads",tabCh:"Connections",tabPx:"Apps",tabSet:"Settings",
   download:"Download",urlPh:"Paste a link to a file",
   emptyDl:"Paste a link to a file and it downloads over all connections at once. Each one takes as much as it can carry.",
   cable:"Cable",phone:"Phone",wifi:"Wi-Fi",other:"Network",
   noCh:"Duolink sees no internet connections. Plug in a cable, join Wi-Fi or connect a phone in USB tethering mode.",
   oneCh:"One connection is working. Add a second one, such as a phone over USB, and Duolink picks it up on its own.",
   mergeOffNote:"Combining is off: all traffic uses the fastest connection, as if Duolink were not running.",
-  idle:"waiting for traffic",down:"no connection",disabled:"turned off",ping:"ping",share:"share",speed:"speed",got:"received",ms:"ms",
-  queued:"Queued",running:"Downloading",done:"Done",failed:"Failed",canceled:"Canceled",
+  idle:"waiting for traffic",reserve:"in reserve",tunT:"All apps through Duolink",tunP:"Duolink adds a virtual network adapter, so Hydra, Steam, games and any other app use all your connections with no setup. Needs administrator rights: Windows will ask.",tunOn:"On: all of this computer's traffic goes through Duolink",tunOff:"Off: only downloads here and apps set to the proxy use Duolink",tunElev:"Restarting Duolink with administrator rights. Approve the Windows prompt.",tunNo:"Windows did not grant administrator rights, so the mode stays off.",tunBadge:"all apps",pxOr:"Or a proxy for single apps",down:"no connection",disabled:"turned off",ping:"ping",share:"share",speed:"speed",got:"received",ms:"ms",
+  queued:"Queued",connecting:"Connecting to the server",running:"Downloading",paused:"Paused",pause:"Pause",resume:"Resume",retry:"Retry",remove:"Remove",done:"Done",failed:"Failed",canceled:"Canceled",
   showFile:"Show in folder",cancel:"Cancel",left:"left",single:"The server sends this file as one stream, so it uses one connection.",
   pxTitle:"Proxy for other apps",
   pxText:"Put this address in an app's proxy settings and its connections spread across all your links. Works with qBittorrent, browsers and Telegram.",
@@ -337,7 +377,7 @@ async function tick(){
   render(false);
 }
 
-let lastKey="";
+let lastKey="",prevFlow=new Set(),tunMsg="";
 function render(force){
   if(!S)return;
   const chs=S.channels||[];
@@ -350,6 +390,14 @@ function render(force){
   $("socks").textContent="127.0.0.1:"+(S.socks||"").split(":").pop();
   $("dir").textContent=S.dir;
   $("auto").checked=!!S.autostart;
+  const tn=S.tun||{};
+  $("tun").checked=!!tn.on;
+  $("tun").disabled=!S.tun_available;
+  $("tunBox").classList.toggle("on",!!tn.on);
+  $("tunBadge").hidden=!tn.on;$("tunBadge").textContent=t("tunBadge");
+  if(!tunMsg){const st=$("tunState");
+    st.className="st"+(tn.error?" bad":tn.on?" on":"");
+    st.textContent=tn.error?tn.error:t(tn.on?"tunOn":"tunOff")}
   $("rowAuto").hidden=!S.app;
   $("cntCh").textContent=chs.length||"";
   const active=(S.downloads||[]).filter(d=>d.state==="running"||d.state==="queued").length;
@@ -357,15 +405,23 @@ function render(force){
 
   // hero sources
   const total=usable.reduce((a,c)=>a+c.rx_rate,0);
-  const key=chs.map(c=>c.name+c.up+c.enabled).join("|")+lang;
+  // A link "flows" when traffic may use it: all usable ones, or only the best
+  // one while combining is off (the others wait in reserve).
+  const flowSet=new Set((S.merge?usable:usable.slice().sort((a,b)=>b.capacity-a.capacity).slice(0,1)).map(c=>c.name));
+  const key=chs.map(c=>c.name+flowSet.has(c.name)+c.up+c.enabled).join("|")+lang;
   if(force||key!==lastKey){
-    $("srcs").innerHTML=chs.map(c=>`<div class="src${c.up&&c.enabled?"":" off"}" data-n="${esc(c.name)}" style="--col:var(${colorFor(c)})">
-      <div class="nm">${esc(L[c.name])}</div><div class="v"></div></div>`).join("");
+    $("srcs").innerHTML=chs.map(c=>{
+      const on=flowSet.has(c.name),enter=on&&!prevFlow.has(c.name)&&!reduced;
+      const letters=[...L[c.name]].map((ch,i)=>`<span class="l" style="--i:${i}">${ch===" "?"&nbsp;":esc(ch)}</span>`).join("");
+      return `<div class="src${on?"":" off"}${enter?" enter":""}" data-n="${esc(c.name)}" style="--col:var(${colorFor(c)})">
+        <div class="nm" aria-label="${esc(L[c.name])}"><span>${letters}</span></div><div class="v"></div></div>`}).join("");
+    for(const c of chs)if(flowSet.has(c.name)&&!prevFlow.has(c.name))braid.reveal(c.name);
     lastKey=key;
   }
+  prevFlow=flowSet;
   for(const el of $("srcs").children){
     const c=chs.find(x=>x.name===el.dataset.n);if(!c)continue;
-    el.querySelector(".v").innerHTML=!c.enabled?t("disabled"):!c.up?t("down"):
+    el.querySelector(".v").innerHTML=!c.enabled?t("disabled"):!c.up?t("down"):!flowSet.has(c.name)?t("reserve"):
       `<b>${fmtM(c.rx_rate)}</b> ${t("mbit")}`;
   }
   $("total").textContent=fmtM(total);
@@ -405,8 +461,10 @@ function render(force){
     if(eta>0&&d.state==="running"){const mi=lang==="ru"?"мин":"min",se=lang==="ru"?"с":"s";
       meta.push(`<span>${t("left")} ${eta>=60?Math.floor(eta/60)+" "+mi+" ":""}${Math.round(eta%60)} ${se}</span>`)}
     if(per.length>1&&d.done>0)meta.push(per.map(([n,v])=>`${esc(L[n]||n)} ${Math.round(v/per.reduce((a,[,x])=>a+x,0)*100)}%`).join(", "));
-    const acts=(d.state==="running"||d.state==="queued")?`<button class="btn s" data-cancel="${d.id}">${t("cancel")}</button>`:
-      d.state==="done"?`<button class="btn s" data-reveal="${d.id}">${t("showFile")}</button>`:"";
+    const B=(a,l)=>`<button class="btn s" data-act="${a}" data-id="${d.id}">${t(l)}</button>`;
+    const live=d.state==="running"||d.state==="queued"||d.state==="connecting";
+    const acts=live?B("pause","pause")+B("remove","cancel"):d.state==="paused"?B("resume","resume")+B("remove","cancel"):
+      d.state==="failed"?B("resume","retry")+B("remove","remove"):d.state==="done"?B("reveal","showFile")+B("remove","remove"):B("remove","remove");
     return `<div class="dl"><div class="t" title="${esc(d.url)}">${esc(name)}</div><div class="acts">${acts}</div>
       <div class="meta">${meta.join("")}${d.error?`<span class="bad">${esc(d.error)}</span>`:""}${!d.ranged&&d.state==="running"?`<span>${t("single")}</span>`:""}</div>
       <div class="prog">${bar}</div></div>`}).join(""):`<div class="empty">${t("emptyDl")}</div>`;
@@ -414,13 +472,20 @@ function render(force){
 
 // events
 $("merge").onchange=async e=>{try{await post("/api/merge",{on:e.target.checked})}catch(err){}tick()};
+$("tun").onchange=async e=>{
+  const on=e.target.checked,st=$("tunState");
+  try{const r=await post("/api/tun",{on});
+    if(r.result==="elevating"){tunMsg="elev";st.className="st";st.textContent=t("tunElev");return}
+    tunMsg=""}
+  catch(err){e.target.checked=!on;tunMsg="err";st.className="st bad";
+    st.textContent=/not granted|cancel/i.test(err.message)?t("tunNo"):err.message;setTimeout(()=>tunMsg="",6000)}
+  tick()};
 $("auto").onchange=async e=>{try{await post("/api/autostart",{on:e.target.checked})}catch(err){e.target.checked=!e.target.checked}tick()};
 $("openDir").onclick=()=>post("/api/open-folder").catch(()=>{});
 $("copy").onclick=async()=>{try{await navigator.clipboard.writeText($("socks").textContent);$("copy").textContent=t("copied");setTimeout(()=>$("copy").textContent=t("copy"),1500)}catch(e){}};
 $("chs").onchange=async e=>{const n=e.target.dataset.ch;if(!n)return;try{await post(`/api/channels/${encodeURIComponent(n)}/enabled`,{on:e.target.checked})}catch(err){}tick()};
 $("dls").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
-  if(b.dataset.cancel)await post(`/api/downloads/${b.dataset.cancel}/cancel`).catch(()=>{});
-  if(b.dataset.reveal)await post(`/api/downloads/${b.dataset.reveal}/reveal`).catch(()=>{});tick()};
+  if(b.dataset.act)await post(`/api/downloads/${b.dataset.id}/${b.dataset.act}`).catch(()=>{});tick()};
 $("addForm").onsubmit=async e=>{e.preventDefault();$("addErr").textContent="";
   try{await post("/api/downloads",{url:$("url").value.trim()});$("url").value="";showTab("dls")}catch(err){$("addErr").textContent=err.message}tick()};
 
@@ -463,6 +528,10 @@ const braid=(()=>{
         s.parts.length=0;return;
       }
       const ye=off+s.w/2;off+=s.w;
+      // A link that just joined is drawn in by a wave travelling from its
+      // label into the trunk.
+      const rp=s.rvAt?Math.min(1,(ts-s.rvAt)/1100):1,rx=(1-Math.pow(1-rp,3))*W;
+      if(rp<1){g.save();g.beginPath();g.rect(0,0,rx,H);g.clip()}
       // Each link leaves its label as a thin wire and swells to its real
       // share of the trunk at the merge point.
       const w0=Math.min(s.w,6),wAt=u=>w0+(s.w-w0)*(u*u*(3-2*u));
@@ -493,11 +562,19 @@ const braid=(()=>{
         }
         g.globalAlpha=1;
       }
+      if(rp<1){
+        g.restore();
+        const yA=Math.min(y0,ye)-s.w/2-14,yB=Math.max(y0,ye)+s.w/2+14;
+        const gr=g.createLinearGradient(rx-90,0,rx+4,0);
+        gr.addColorStop(0,"rgba(91,140,255,0)");gr.addColorStop(0.85,"rgba(91,140,255,.32)");gr.addColorStop(1,"rgba(160,190,255,.85)");
+        g.fillStyle=gr;g.globalAlpha=1-rp*0.6;g.fillRect(rx-90,yA,94,yB-yA);g.globalAlpha=1;
+      }
     });
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  return {set};
+  function reveal(n){if(reduced)return;(st[n]=st[n]||{w:0,parts:[],acc:0}).rvAt=performance.now()}
+  return {set,reveal};
 })();
 
 applyLang();tick();setInterval(tick,1000);

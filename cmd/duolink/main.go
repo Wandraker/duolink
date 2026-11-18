@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -11,13 +12,16 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/Wandraker/duolink/internal/app"
 	"github.com/Wandraker/duolink/internal/channel"
 	"github.com/Wandraker/duolink/internal/dl"
+	"github.com/Wandraker/duolink/internal/elevate"
 	"github.com/Wandraker/duolink/internal/settings"
 	"github.com/Wandraker/duolink/internal/socks"
+	"github.com/Wandraker/duolink/internal/tun"
 	"github.com/Wandraker/duolink/internal/web"
 )
 
@@ -52,6 +56,8 @@ func main() {
 	dir := flag.String("dir", defaultDir(), "download folder")
 	workers := flag.Int("workers", dl.WorkersPerChannel, "parallel range requests per channel")
 	tray := flag.Bool("tray", false, "start in the tray without opening the window")
+	tunFlag := flag.Bool("tun", false, "route all system traffic through Duolink (needs admin)")
+	waitPid := flag.Int("wait-pid", 0, "internal: wait for this process to exit first")
 	headless := flag.Bool("headless", false, "no window or tray; panel in the browser")
 	noBrowser := flag.Bool("no-browser", false, "headless: do not open the panel")
 	flag.Parse()
@@ -61,6 +67,9 @@ func main() {
 	gui := app.Supported() && !*headless
 	if !gui {
 		attachConsole()
+	}
+	if *waitPid > 0 {
+		elevate.WaitExit(*waitPid, 15*time.Second)
 	}
 	if gui && app.AlreadyRunning(panel) {
 		return
@@ -85,9 +94,45 @@ func main() {
 		logger.Printf("channel %-12s %-6s %s  v4=%v v6=%v  %s", c.Name, c.Kind, c.Desc, c.V4, c.V6, state)
 	}
 
-	dlm := &dl.Manager{Mgr: mgr, Dir: *dir}
+	dlm := &dl.Manager{Mgr: mgr, Dir: *dir, StateFile: filepath.Join(settings.Dir(), "downloads.json")}
+	if gui {
+		dlm.Load()
+	} else {
+		dlm.StateFile = "" // headless copies must not overwrite the app's list
+	}
 	ws := &web.Server{Mgr: mgr, DL: dlm, SocksAddr: *socksAddr, Version: version}
 	ss := &socks.Server{Mgr: mgr}
+
+	tunnel := &tun.Tunnel{Mgr: mgr}
+	defer tunnel.Stop() // always give routing back on exit
+	var shell *app.Shell
+	ws.TunState = func() any { return tunnel.State() }
+	ws.TunSet = func(on bool) (string, error) {
+		if !on {
+			tunnel.Stop()
+			return "off", nil
+		}
+		if elevate.IsAdmin() {
+			if err := tunnel.Start(); err != nil {
+				return "", err
+			}
+			return "on", nil
+		}
+		if !gui {
+			return "", errors.New("run Duolink as administrator to use TUN mode")
+		}
+		// Restart elevated; the new instance waits for this one to exit.
+		if err := elevate.Relaunch("-tun", "-wait-pid", strconv.Itoa(os.Getpid())); err != nil {
+			return "", err
+		}
+		go func() { time.Sleep(400 * time.Millisecond); shell.Exit() }()
+		return "elevating", nil
+	}
+	if *tunFlag && elevate.IsAdmin() {
+		if err := tunnel.Start(); err != nil {
+			logger.Printf("tun: %v", err)
+		}
+	}
 
 	errc := make(chan error, 2)
 	go func() { errc <- ss.ListenAndServe(ctx, *socksAddr) }()
@@ -104,7 +149,8 @@ func main() {
 			case <-ctx.Done():
 			}
 		}()
-		shell := &app.Shell{Mgr: mgr, Web: ws, PanelURL: panel, Hidden: *tray, Quit: stop}
+		shell = &app.Shell{Mgr: mgr, Web: ws, PanelURL: panel, Hidden: *tray, Quit: stop,
+			TunOn: func() bool { return tunnel.State().On }}
 		shell.Run()
 		return
 	}

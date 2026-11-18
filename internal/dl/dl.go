@@ -32,12 +32,17 @@ var WorkersPerChannel = 4
 type State string
 
 const (
-	Queued   State = "queued"
-	Running  State = "running"
-	Done     State = "done"
-	Failed   State = "failed"
-	Canceled State = "canceled"
+	Queued     State = "queued"
+	Connecting State = "connecting" // asking the server for size and range support
+	Running    State = "running"
+	Paused     State = "paused"
+	Done       State = "done"
+	Failed     State = "failed"
+	Canceled   State = "canceled"
 )
+
+// Active reports whether the download is still in progress.
+func (s State) Active() bool { return s == Queued || s == Connecting || s == Running }
 
 type Download struct {
 	ID       string    `json:"id"`
@@ -50,10 +55,12 @@ type Download struct {
 	Started  time.Time `json:"started"`
 	Finished time.Time `json:"finished,omitempty"`
 
-	done   atomic.Int64
-	mu     sync.Mutex
-	per    map[string]*atomic.Int64
-	cancel context.CancelFunc
+	done    atomic.Int64
+	mu      sync.Mutex
+	per     map[string]*atomic.Int64
+	cancel  context.CancelFunc
+	pausing atomic.Bool
+	gen     int // bumps on every (re)start so a stale run cannot overwrite state
 }
 
 // Progress returns bytes done and bytes per channel name.
@@ -84,6 +91,9 @@ func (d *Download) setState(s State, err error) {
 	if err != nil {
 		d.Err = err.Error()
 	}
+	if s == Running || s == Connecting {
+		d.Err = ""
+	}
 	if s == Done || s == Failed || s == Canceled {
 		d.Finished = time.Now()
 	}
@@ -110,10 +120,172 @@ func (d *Download) Cancel() {
 type Manager struct {
 	Mgr *channel.Manager
 	Dir string
+	// StateFile, if set, keeps the download list across restarts.
+	StateFile string
 
 	mu   sync.Mutex
 	list []*Download
 	seq  int
+}
+
+type savedDownload struct {
+	ID    string           `json:"id"`
+	URL   string           `json:"url"`
+	Path  string           `json:"path"`
+	Size  int64            `json:"size"`
+	State State            `json:"state"`
+	Done  int64            `json:"done"`
+	Per   map[string]int64 `json:"per_channel,omitempty"`
+	Start time.Time        `json:"started"`
+}
+
+// persist writes the list (newest 50) to StateFile.
+func (m *Manager) persist() {
+	if m.StateFile == "" {
+		return
+	}
+	var out []savedDownload
+	for _, d := range m.List() {
+		s := d.Snapshot()
+		done, per := d.Progress()
+		st := s.State
+		if st.Active() {
+			st = Paused // after a restart it waits for the user
+		}
+		out = append(out, savedDownload{ID: s.ID, URL: s.URL, Path: s.Path, Size: s.Size, State: st,
+			Done: done, Per: per, Start: s.Started})
+	}
+	if len(out) > 50 {
+		out = out[len(out)-50:]
+	}
+	b, _ := json.MarshalIndent(out, "", "  ")
+	os.MkdirAll(filepath.Dir(m.StateFile), 0o755)
+	tmp := m.StateFile + ".tmp"
+	if os.WriteFile(tmp, b, 0o644) == nil {
+		os.Rename(tmp, m.StateFile)
+	}
+}
+
+// Load restores the list saved by an earlier run. Unfinished downloads come
+// back paused.
+func (m *Manager) Load() {
+	if m.StateFile == "" {
+		return
+	}
+	b, err := os.ReadFile(m.StateFile)
+	if err != nil {
+		return
+	}
+	var in []savedDownload
+	if json.Unmarshal(b, &in) != nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range in {
+		d := &Download{ID: s.ID, URL: s.URL, Path: s.Path, Size: s.Size, State: s.State, Started: s.Start,
+			Ranged: true, per: map[string]*atomic.Int64{}}
+		if d.State.Active() {
+			d.State = Paused
+		}
+		d.done.Store(s.Done)
+		for k, v := range s.Per {
+			c := &atomic.Int64{}
+			c.Store(v)
+			d.per[k] = c
+		}
+		m.list = append(m.list, d)
+		if n, err := strconv.Atoi(s.ID); err == nil && n > m.seq {
+			m.seq = n
+		}
+	}
+}
+
+// Pause stops a download but keeps what was fetched.
+func (m *Manager) Pause(id string) error {
+	d := m.Get(id)
+	if d == nil {
+		return errors.New("no such download")
+	}
+	if !d.Snapshot().State.Active() {
+		return nil
+	}
+	d.pausing.Store(true)
+	d.Cancel()
+	return nil
+}
+
+// Resume continues a paused or failed download from where it stopped.
+func (m *Manager) Resume(id string) error {
+	d := m.Get(id)
+	if d == nil {
+		return errors.New("no such download")
+	}
+	st := d.Snapshot().State
+	if st != Paused && st != Failed {
+		return nil
+	}
+	m.start(d, "")
+	return nil
+}
+
+// Remove cancels a download (if running), deletes its unfinished file and
+// drops it from the list. Finished files stay on disk.
+func (m *Manager) Remove(id string) error {
+	d := m.Get(id)
+	if d == nil {
+		return errors.New("no such download")
+	}
+	d.Cancel()
+	s := d.Snapshot()
+	if s.State != Done && s.Path != "" {
+		go func() { // give the workers a moment to close the file
+			time.Sleep(500 * time.Millisecond)
+			os.Remove(s.Path + ".part")
+			os.Remove(s.Path + ".part.duolink")
+		}()
+	}
+	m.mu.Lock()
+	for i, x := range m.list {
+		if x == d {
+			m.list = append(m.list[:i], m.list[i+1:]...)
+			break
+		}
+	}
+	m.mu.Unlock()
+	m.persist()
+	return nil
+}
+
+func (m *Manager) start(d *Download, name string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	d.mu.Lock()
+	d.cancel = cancel
+	d.gen++
+	gen := d.gen
+	d.State, d.Err = Queued, ""
+	d.mu.Unlock()
+	d.pausing.Store(false)
+	go func() {
+		err := m.run(ctx, d, name)
+		d.mu.Lock()
+		stale := d.gen != gen
+		d.mu.Unlock()
+		if stale {
+			return
+		}
+		switch {
+		case err == nil:
+			d.setState(Done, nil)
+		case d.pausing.Load():
+			d.setState(Paused, nil)
+		case ctx.Err() != nil:
+			d.setState(Canceled, nil)
+		default:
+			d.setState(Failed, err)
+		}
+		m.persist()
+	}()
 }
 
 func (m *Manager) List() []*Download {
@@ -141,22 +313,12 @@ func (m *Manager) Add(rawURL, name string) (*Download, error) {
 	}
 	m.mu.Lock()
 	m.seq++
-	ctx, cancel := context.WithCancel(context.Background())
 	d := &Download{ID: strconv.Itoa(m.seq), URL: u.String(), State: Queued, Started: time.Now(),
-		per: map[string]*atomic.Int64{}, cancel: cancel}
+		per: map[string]*atomic.Int64{}}
 	m.list = append(m.list, d)
 	m.mu.Unlock()
-	go func() {
-		err := m.run(ctx, d, name)
-		switch {
-		case err == nil:
-			d.setState(Done, nil)
-		case ctx.Err() != nil:
-			d.setState(Canceled, nil)
-		default:
-			d.setState(Failed, err)
-		}
-	}()
+	m.start(d, name)
+	m.persist()
 	return d, nil
 }
 
@@ -261,7 +423,7 @@ type sidecar struct {
 }
 
 func (m *Manager) run(ctx context.Context, d *Download, name string) error {
-	d.setState(Running, nil)
+	d.setState(Connecting, nil)
 	best := m.Mgr.Best()
 	if best == nil {
 		return errors.New("no working internet channel")
@@ -293,19 +455,31 @@ func (m *Manager) run(ctx context.Context, d *Download, name string) error {
 	if err := os.MkdirAll(m.Dir, 0o755); err != nil {
 		return err
 	}
-	// Resume: reuse an existing .part with a matching sidecar.
-	target := filepath.Join(m.Dir, safeName(name))
+	// Resume: reuse an existing .part with a matching sidecar. A paused
+	// download already knows its file; a new one tries the plain name.
+	d.mu.Lock()
+	known := d.Path
+	d.mu.Unlock()
+	target := known
+	if target == "" {
+		target = filepath.Join(m.Dir, safeName(name))
+	}
 	var sc sidecar
 	if b, err := os.ReadFile(target + ".part.duolink"); err == nil && json.Unmarshal(b, &sc) == nil &&
 		sc.URL == d.URL && sc.Size == pr.size && pr.ranged {
 		// resuming
 	} else {
-		target = uniquePath(m.Dir, safeName(name))
+		if known == "" {
+			target = uniquePath(m.Dir, safeName(name))
+		}
 		sc = sidecar{}
 	}
 	d.mu.Lock()
 	d.Path, d.Size, d.Ranged = target, pr.size, pr.ranged
 	d.mu.Unlock()
+	d.done.Store(0)
+	d.setState(Running, nil)
+	m.persist()
 
 	if !pr.ranged || pr.size <= 0 || len(m.Mgr.Usable()) == 0 {
 		return single(ctx, d, best, pr.finalURL, target)

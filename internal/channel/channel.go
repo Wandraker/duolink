@@ -66,6 +66,14 @@ func (c *Channel) dnsServers() []string {
 	return s
 }
 
+// HasFamily reports whether the channel has an address of ip's family.
+func (c *Channel) HasFamily(ip net.IP) bool {
+	if ip.To4() != nil {
+		return c.V4 != nil
+	}
+	return c.V6 != nil
+}
+
 // Up reports whether the last health probes succeeded.
 func (c *Channel) Up() bool { return c.up.Load() }
 
@@ -91,6 +99,10 @@ func (c *Channel) Capacity() float64 {
 	defer c.mu.Unlock()
 	return c.peak
 }
+
+// OpenUDP / CloseUDP count UDP sessions in Active.
+func (c *Channel) OpenUDP()  { c.active.Add(1) }
+func (c *Channel) CloseUDP() { c.active.Add(-1) }
 
 // AddRx / AddTx account traffic that does not go through a wrapped conn (UDP relay).
 func (c *Channel) AddRx(n int) { c.rx.Add(uint64(n)) }

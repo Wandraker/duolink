@@ -3,3 +3,5 @@
 /.claude/
 *.part
 *.part.duolink
+/wintun.dll
+/duolink-*.exe

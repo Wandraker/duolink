@@ -288,6 +288,29 @@ func (m *Manager) LowestRTT() *Channel {
 	return best
 }
 
+// PickFor is Pick limited to channels that can reach ip's address family
+// (a cable without IPv6 cannot carry an IPv6 connection).
+func (m *Manager) PickFor(key string, ip net.IP) *Channel {
+	ch := m.Pick(key)
+	if ch == nil || ip == nil || ch.HasFamily(ip) {
+		return ch
+	}
+	var pool []*Channel
+	for _, c := range m.Usable() {
+		if c.HasFamily(ip) {
+			pool = append(pool, c)
+		}
+	}
+	if len(pool) == 0 {
+		return nil
+	}
+	c := weighted(pool)
+	m.stickyMu.Lock()
+	m.sticky[key] = stickyEntry{ch: c, seen: time.Now()}
+	m.stickyMu.Unlock()
+	return c
+}
+
 // InUse reports whether new traffic may go through c right now.
 func (m *Manager) InUse(c *Channel) bool { return contains(m.Usable(), c) }
 

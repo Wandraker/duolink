@@ -30,8 +30,9 @@ type Shell struct {
 	Mgr      *channel.Manager
 	Web      *web.Server
 	PanelURL string
-	Hidden   bool   // start in the tray without opening the window
-	Quit     func() // stops the core
+	Hidden   bool        // start in the tray without opening the window
+	Quit     func()      // stops the core
+	TunOn    func() bool // whether TUN mode is active
 
 	ru bool
 
@@ -100,6 +101,7 @@ func (s *Shell) onReady() {
 	open := systray.AddMenuItem(s.tr("Открыть Duolink", "Open Duolink"), "")
 	systray.AddSeparator()
 	merge := systray.AddMenuItemCheckbox(s.tr("Объединять каналы", "Combine connections"), "", s.Mgr.Merge())
+	tunItem := systray.AddMenuItemCheckbox(s.tr("Все программы через Duolink", "All apps through Duolink"), "", s.tunOn())
 	auto := systray.AddMenuItemCheckbox(s.tr("Запускать вместе с Windows", "Start with Windows"), "", autostart.Enabled())
 	folder := systray.AddMenuItem(s.tr("Папка загрузок", "Downloads folder"), "")
 	systray.AddSeparator()
@@ -118,6 +120,11 @@ func (s *Shell) onReady() {
 		} else {
 			auto.Uncheck()
 		}
+		if s.tunOn() {
+			tunItem.Check()
+		} else {
+			tunItem.Uncheck()
+		}
 		if m != lastMerge {
 			systray.SetIcon(icon.ICO(m, 16, 24, 32))
 			lastMerge = m
@@ -134,6 +141,10 @@ func (s *Shell) onReady() {
 			case <-merge.ClickedCh:
 				s.Mgr.SetMerge(!s.Mgr.Merge())
 				s.Web.OnChange()
+			case <-tunItem.ClickedCh:
+				if s.Web.TunSet != nil {
+					go func(on bool) { s.Web.TunSet(on); s.refresh() }(!s.tunOn())
+				}
 			case <-auto.ClickedCh:
 				autostart.Set(!autostart.Enabled())
 				s.refresh()
@@ -154,6 +165,14 @@ func (s *Shell) onReady() {
 	if !s.Hidden {
 		s.Show()
 	}
+}
+
+func (s *Shell) tunOn() bool { return s.TunOn != nil && s.TunOn() }
+
+// Exit closes the window and the tray; Run then returns.
+func (s *Shell) Exit() {
+	s.closeWindow()
+	systray.Quit()
 }
 
 func (s *Shell) tooltip() string {

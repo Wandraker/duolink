@@ -193,7 +193,7 @@ func (m *Manager) ranged(ctx context.Context, d *Download, pr probeResult, targe
 				select {
 				case <-wctx.Done():
 					return
-				case <-time.After(2 * time.Second):
+				case <-time.After(500 * time.Millisecond):
 				}
 				continue
 			}

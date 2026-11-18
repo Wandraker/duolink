@@ -14,7 +14,10 @@ type Shell struct {
 	PanelURL string
 	Hidden   bool
 	Quit     func()
+	TunOn    func() bool
 }
+
+func (s *Shell) Exit() {}
 
 func AlreadyRunning(string) bool { return false }
 

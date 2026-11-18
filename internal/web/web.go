@@ -32,6 +32,11 @@ type Server struct {
 	OnShow       func()      // a second launch asked to bring the window up
 	Autostart    func() bool // current autostart state
 	SetAutostart func(bool) error
+
+	// TUN mode. TunSet returns "on", "off" or "elevating" (Duolink is
+	// restarting with admin rights and the page will reconnect).
+	TunState func() any
+	TunSet   func(on bool) (string, error)
 }
 
 type chanJSON struct {
@@ -87,9 +92,14 @@ func (s *Server) state() any {
 	if s.Autostart != nil {
 		auto = s.Autostart()
 	}
+	var tunState any
+	if s.TunState != nil {
+		tunState = s.TunState()
+	}
 	return map[string]any{
 		"version": s.Version, "socks": s.SocksAddr, "dir": s.DL.Dir,
 		"merge": s.Mgr.Merge(), "autostart": auto, "app": s.OnShow != nil,
+		"tun": tunState, "tun_available": s.TunSet != nil,
 		"channels": chans, "downloads": dls,
 	}
 }
@@ -207,6 +217,23 @@ func (s *Server) Handler() http.Handler {
 		s.changed()
 		writeJSON(w, map[string]bool{"autostart": on})
 	})
+	mux.HandleFunc("POST /api/tun", func(w http.ResponseWriter, r *http.Request) {
+		on, ok := readOn(w, r)
+		if !ok {
+			return
+		}
+		if s.TunSet == nil {
+			http.Error(w, "TUN mode is not available", http.StatusNotImplemented)
+			return
+		}
+		res, err := s.TunSet(on)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.changed()
+		writeJSON(w, map[string]string{"result": res})
+	})
 	mux.HandleFunc("POST /api/show", func(w http.ResponseWriter, r *http.Request) {
 		if s.OnShow != nil {
 			s.OnShow()
@@ -232,15 +259,21 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
-	mux.HandleFunc("POST /api/downloads/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
-		d := s.DL.Get(r.PathValue("id"))
-		if d == nil {
-			http.NotFound(w, r)
-			return
-		}
-		d.Cancel()
-		writeJSON(w, map[string]bool{"ok": true})
-	})
+	for action, fn := range map[string]func(string) error{
+		"pause":  s.DL.Pause,
+		"resume": s.DL.Resume,
+		"remove": s.DL.Remove,
+		"cancel": s.DL.Remove, // older name
+	} {
+		fn := fn
+		mux.HandleFunc("POST /api/downloads/{id}/"+action, func(w http.ResponseWriter, r *http.Request) {
+			if err := fn(r.PathValue("id")); err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			writeJSON(w, map[string]bool{"ok": true})
+		})
+	}
 	return localOnly(mux)
 }
 
