@@ -201,6 +201,54 @@ func (m *Manager) Load() {
 	}
 }
 
+// ScanPartial adds unfinished downloads found in Dir (a .part with its
+// .part.duolink progress file) that are not in the list yet, as paused. This
+// recovers downloads from versions that did not save the list.
+func (m *Manager) ScanPartial() {
+	matches, _ := filepath.Glob(filepath.Join(m.Dir, "*.part.duolink"))
+	if len(matches) == 0 {
+		return
+	}
+	known := map[string]bool{}
+	for _, d := range m.List() {
+		known[strings.ToLower(d.Snapshot().Path)] = true
+	}
+	added := false
+	for _, sp := range matches {
+		path := strings.TrimSuffix(sp, ".part.duolink")
+		if known[strings.ToLower(path)] {
+			continue
+		}
+		if _, err := os.Stat(path + ".part"); err != nil {
+			continue
+		}
+		b, err := os.ReadFile(sp)
+		if err != nil {
+			continue
+		}
+		var sc sidecar
+		if json.Unmarshal(b, &sc) != nil || sc.URL == "" || sc.Size <= 0 {
+			continue
+		}
+		var left int64
+		for _, r := range sc.Pending {
+			left += r[1] - r[0]
+		}
+		fi, _ := os.Stat(sp)
+		m.mu.Lock()
+		m.seq++
+		d := &Download{ID: strconv.Itoa(m.seq), URL: sc.URL, Path: path, Size: sc.Size, Ranged: true,
+			State: Paused, Started: fi.ModTime(), per: map[string]*atomic.Int64{}}
+		d.done.Store(sc.Size - left)
+		m.list = append(m.list, d)
+		m.mu.Unlock()
+		added = true
+	}
+	if added {
+		m.persist()
+	}
+}
+
 // Pause stops a download but keeps what was fetched.
 func (m *Manager) Pause(id string) error {
 	d := m.Get(id)

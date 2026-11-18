@@ -97,6 +97,7 @@ func main() {
 	dlm := &dl.Manager{Mgr: mgr, Dir: *dir, StateFile: filepath.Join(settings.Dir(), "downloads.json")}
 	if gui {
 		dlm.Load()
+		dlm.ScanPartial()
 	} else {
 		dlm.StateFile = "" // headless copies must not overwrite the app's list
 	}
