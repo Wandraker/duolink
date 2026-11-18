@@ -1,0 +1,5 @@
+/duolink.exe
+/dist/
+/.claude/
+*.part
+*.part.duolink
