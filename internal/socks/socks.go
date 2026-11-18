@@ -155,7 +155,7 @@ func (s *Server) connect(c net.Conn, host string, port int) {
 		}
 		if tried[ch] {
 			// sticky choice failed before: try any other healthy channel
-			for _, o := range s.Mgr.Healthy() {
+			for _, o := range s.Mgr.Usable() {
 				if !tried[o] {
 					ch = o
 					break

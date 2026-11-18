@@ -9,3 +9,5 @@ import "syscall"
 func bindControl(int) func(network, address string, c syscall.RawConn) error {
 	return nil
 }
+
+func adapterInfo() map[int]adapter { return map[int]adapter{} }

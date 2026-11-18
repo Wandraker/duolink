@@ -5,8 +5,12 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -22,10 +26,19 @@ type Server struct {
 	DL        *dl.Manager
 	SocksAddr string
 	Version   string
+
+	// Hooks for the desktop shell; all optional.
+	OnChange     func()      // merge or channel switches changed: persist, refresh tray
+	OnShow       func()      // a second launch asked to bring the window up
+	Autostart    func() bool // current autostart state
+	SetAutostart func(bool) error
 }
 
 type chanJSON struct {
 	Name     string  `json:"name"`
+	Kind     string  `json:"kind"`
+	Desc     string  `json:"desc,omitempty"`
+	Enabled  bool    `json:"enabled"`
 	Up       bool    `json:"up"`
 	RTTms    float64 `json:"rtt_ms"`
 	RxRate   float64 `json:"rx_rate"`
@@ -57,7 +70,8 @@ func (s *Server) state() any {
 		rx, tx := c.Rates()
 		rt, tt := c.Totals()
 		chans = append(chans, chanJSON{
-			Name: c.Name, Up: c.Up(), RTTms: float64(c.RTT().Microseconds()) / 1000,
+			Name: c.Name, Kind: string(c.Kind), Desc: c.Desc, Enabled: s.Mgr.Enabled(c.Name),
+			Up: c.Up(), RTTms: float64(c.RTT().Microseconds()) / 1000,
 			RxRate: rx, TxRate: tx, Capacity: c.Capacity(), RxTotal: rt, TxTotal: tt,
 			Active: c.Active(), V4: ipStr(c.V4), V6: ipStr(c.V6),
 		})
@@ -69,10 +83,46 @@ func (s *Server) state() any {
 		done, per := d.Progress()
 		dls = append(dls, dlJSON{Download: d.Snapshot(), Done: done, PerChannel: per})
 	}
+	auto := false
+	if s.Autostart != nil {
+		auto = s.Autostart()
+	}
 	return map[string]any{
 		"version": s.Version, "socks": s.SocksAddr, "dir": s.DL.Dir,
+		"merge": s.Mgr.Merge(), "autostart": auto, "app": s.OnShow != nil,
 		"channels": chans, "downloads": dls,
 	}
+}
+
+func readOn(w http.ResponseWriter, r *http.Request) (bool, bool) {
+	var req struct {
+		On bool `json:"on"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&req); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return false, false
+	}
+	return req.On, true
+}
+
+func (s *Server) changed() {
+	if s.OnChange != nil {
+		s.OnChange()
+	}
+}
+
+// reveal opens Explorer at path (selecting the file when it exists).
+func reveal(path string) error {
+	if runtime.GOOS != "windows" {
+		return errors.New("only on Windows")
+	}
+	if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+		return exec.Command("explorer", "/select,", path).Start()
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return err
+	}
+	return exec.Command("explorer", path).Start()
 }
 
 // localOnly rejects requests whose Host or Origin is not this machine, so a
@@ -122,6 +172,65 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		writeJSON(w, map[string]string{"id": d.ID})
+	})
+	mux.HandleFunc("POST /api/merge", func(w http.ResponseWriter, r *http.Request) {
+		on, ok := readOn(w, r)
+		if !ok {
+			return
+		}
+		s.Mgr.SetMerge(on)
+		s.changed()
+		writeJSON(w, map[string]bool{"merge": on})
+	})
+	mux.HandleFunc("POST /api/channels/{name}/enabled", func(w http.ResponseWriter, r *http.Request) {
+		on, ok := readOn(w, r)
+		if !ok {
+			return
+		}
+		s.Mgr.SetEnabled(r.PathValue("name"), on)
+		s.changed()
+		writeJSON(w, map[string]bool{"enabled": on})
+	})
+	mux.HandleFunc("POST /api/autostart", func(w http.ResponseWriter, r *http.Request) {
+		on, ok := readOn(w, r)
+		if !ok {
+			return
+		}
+		if s.SetAutostart == nil {
+			http.Error(w, "not available", http.StatusNotImplemented)
+			return
+		}
+		if err := s.SetAutostart(on); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.changed()
+		writeJSON(w, map[string]bool{"autostart": on})
+	})
+	mux.HandleFunc("POST /api/show", func(w http.ResponseWriter, r *http.Request) {
+		if s.OnShow != nil {
+			s.OnShow()
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /api/open-folder", func(w http.ResponseWriter, r *http.Request) {
+		if err := reveal(s.DL.Dir); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /api/downloads/{id}/reveal", func(w http.ResponseWriter, r *http.Request) {
+		d := s.DL.Get(r.PathValue("id"))
+		if d == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if err := reveal(d.Snapshot().Path); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("POST /api/downloads/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
 		d := s.DL.Get(r.PathValue("id"))

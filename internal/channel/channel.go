@@ -15,7 +15,9 @@ import (
 
 // Channel is one internet uplink bound to a network interface.
 type Channel struct {
-	Name  string
+	Name  string // Windows interface name, e.g. "Ethernet 2"
+	Desc  string // adapter description, e.g. "Remote NDIS based Internet Sharing Device"
+	Kind  Kind
 	Index int
 	V4    net.IP
 	V6    net.IP

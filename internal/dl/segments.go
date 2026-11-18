@@ -189,7 +189,7 @@ func (m *Manager) ranged(ctx context.Context, d *Download, pr probeResult, targe
 			if slot >= limit.Load() {
 				return // shed after the server throttled us
 			}
-			if !ch.Up() {
+			if !m.Mgr.InUse(ch) {
 				select {
 				case <-wctx.Done():
 					return
@@ -244,13 +244,14 @@ func (m *Manager) ranged(ctx context.Context, d *Download, pr probeResult, targe
 	// spawn starts workers on channels that do not have them yet, so a phone
 	// plugged in mid-download joins in.
 	spawn := func() {
-		for _, ch := range m.Mgr.Healthy() {
+		for _, ch := range m.Mgr.Usable() {
 			limMu.Lock()
-			_, ok := limits[ch.Name]
+			key := fmt.Sprintf("%p", ch) // a re-detected channel is a new object
+			_, ok := limits[key]
 			if !ok {
 				l := &atomic.Int32{}
 				l.Store(int32(WorkersPerChannel))
-				limits[ch.Name] = l
+				limits[key] = l
 				cl := client(ch)
 				for w := 0; w < WorkersPerChannel; w++ {
 					live.Add(1)
@@ -260,7 +261,7 @@ func (m *Manager) ranged(ctx context.Context, d *Download, pr probeResult, targe
 			limMu.Unlock()
 		}
 	}
-	j.splitTo(len(m.Mgr.Healthy()) * WorkersPerChannel)
+	j.splitTo(len(m.Mgr.Usable()) * WorkersPerChannel)
 	spawn()
 
 	saveTick := time.NewTicker(2 * time.Second)

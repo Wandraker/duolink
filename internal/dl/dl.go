@@ -270,7 +270,7 @@ func (m *Manager) run(ctx context.Context, d *Download, name string) error {
 	var pr probeResult
 	var err error
 	tried := []*channel.Channel{best}
-	for _, c := range m.Mgr.Healthy() {
+	for _, c := range m.Mgr.Usable() {
 		if c != best {
 			tried = append(tried, c)
 		}
@@ -307,7 +307,7 @@ func (m *Manager) run(ctx context.Context, d *Download, name string) error {
 	d.Path, d.Size, d.Ranged = target, pr.size, pr.ranged
 	d.mu.Unlock()
 
-	if !pr.ranged || pr.size <= 0 || len(m.Mgr.Healthy()) == 0 {
+	if !pr.ranged || pr.size <= 0 || len(m.Mgr.Usable()) == 0 {
 		return single(ctx, d, best, pr.finalURL, target)
 	}
 	return m.ranged(ctx, d, pr, target, sc)

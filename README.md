@@ -18,11 +18,11 @@ One connection always runs over one channel. A single live stream (a game, a cal
 
 ## Run
 
-```
-duolink.exe
-```
+Start `duolink.exe`. A window opens and an icon appears in the tray. Closing the window keeps Duolink running in the tray; quit from the tray menu. Starting it again brings the window back instead of a second copy.
 
-Options: `-ui 127.0.0.1:7878`, `-socks 127.0.0.1:1080`, `-dir <folder>`, `-workers 4`, `-no-browser`.
+Options: `-tray` (start hidden in the tray), `-headless` (no window, panel in the browser), `-ui 127.0.0.1:7878`, `-socks 127.0.0.1:1080`, `-dir <folder>`, `-workers 4`.
+
+The window uses Microsoft Edge WebView2, which ships with Windows 11. Settings live in `%APPDATA%\Duolink`.
 
 Command line download:
 
@@ -32,11 +32,20 @@ duolink.exe get -o D:\Downloads https://example.com/big.iso
 
 ## Build
 
-Go 1.22 or newer:
+Go 1.26 or newer:
 
 ```
-go build -o duolink.exe ./cmd/duolink
+go build -ldflags "-H windowsgui -s -w" -o duolink.exe ./cmd/duolink
 ```
+
+Optional, to embed the icon and version info into the .exe (needs [go-winres](https://github.com/tc-hib/go-winres)):
+
+```
+go run ./cmd/genicon
+go-winres make --in cmd/duolink/winres/winres.json --out cmd/duolink/rsrc --arch amd64
+```
+
+Open the panel with `#demo` at the end of the address to see it with made-up traffic.
 
 ## License
 

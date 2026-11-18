@@ -13,13 +13,15 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/Wandraker/duolink/internal/app"
 	"github.com/Wandraker/duolink/internal/channel"
 	"github.com/Wandraker/duolink/internal/dl"
+	"github.com/Wandraker/duolink/internal/settings"
 	"github.com/Wandraker/duolink/internal/socks"
 	"github.com/Wandraker/duolink/internal/web"
 )
 
-var version = "0.1.0-dev"
+var version = "0.2.0"
 
 func defaultDir() string {
 	if h, err := os.UserHomeDir(); err == nil {
@@ -41,6 +43,7 @@ func openBrowser(u string) {
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "get" {
+		attachConsole()
 		cmdGet(os.Args[2:])
 		return
 	}
@@ -48,22 +51,38 @@ func main() {
 	socksAddr := flag.String("socks", "127.0.0.1:1080", "SOCKS5 proxy address")
 	dir := flag.String("dir", defaultDir(), "download folder")
 	workers := flag.Int("workers", dl.WorkersPerChannel, "parallel range requests per channel")
-	noBrowser := flag.Bool("no-browser", false, "do not open the control panel")
+	tray := flag.Bool("tray", false, "start in the tray without opening the window")
+	headless := flag.Bool("headless", false, "no window or tray; panel in the browser")
+	noBrowser := flag.Bool("no-browser", false, "headless: do not open the panel")
 	flag.Parse()
 	dl.WorkersPerChannel = *workers
+	panel := "http://" + *uiAddr
+
+	gui := app.Supported() && !*headless
+	if !gui {
+		attachConsole()
+	}
+	if gui && app.AlreadyRunning(panel) {
+		return
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 
+	st := settings.Load()
 	mgr := channel.NewManager()
+	mgr.SetMerge(st.Merge)
+	for _, n := range st.Disabled {
+		mgr.SetEnabled(n, false)
+	}
 	mgr.Start(ctx)
 	for _, c := range mgr.All() {
 		state := "down"
 		if c.Up() {
 			state = fmt.Sprintf("up, %d ms", c.RTT().Milliseconds())
 		}
-		logger.Printf("channel %-22s v4=%v v6=%v  %s", c.Name, c.V4, c.V6, state)
+		logger.Printf("channel %-12s %-6s %s  v4=%v v6=%v  %s", c.Name, c.Kind, c.Desc, c.V4, c.V6, state)
 	}
 
 	dlm := &dl.Manager{Mgr: mgr, Dir: *dir}
@@ -73,8 +92,23 @@ func main() {
 	errc := make(chan error, 2)
 	go func() { errc <- ss.ListenAndServe(ctx, *socksAddr) }()
 	go func() { errc <- ws.ListenAndServe(ctx, *uiAddr) }()
-	panel := "http://" + *uiAddr
 	logger.Printf("Duolink %s  panel %s  socks5 %s", version, panel, *socksAddr)
+
+	if gui {
+		go func() {
+			select {
+			case err := <-errc:
+				if err != nil {
+					logger.Print(err)
+				}
+			case <-ctx.Done():
+			}
+		}()
+		shell := &app.Shell{Mgr: mgr, Web: ws, PanelURL: panel, Hidden: *tray, Quit: stop}
+		shell.Run()
+		return
+	}
+
 	if !*noBrowser {
 		openBrowser(panel)
 	}
@@ -103,7 +137,7 @@ func cmdGet(args []string) {
 	mgr := channel.NewManager()
 	mgr.Start(ctx)
 	for _, c := range mgr.Healthy() {
-		fmt.Printf("channel %s (%d ms)\n", c.Name, c.RTT().Milliseconds())
+		fmt.Printf("channel %s (%s, %d ms)\n", c.Name, c.Kind, c.RTT().Milliseconds())
 	}
 	m := &dl.Manager{Mgr: mgr, Dir: *dir}
 	d, err := m.Add(fs.Arg(0), "")
