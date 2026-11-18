@@ -62,6 +62,11 @@ func (s *Server) logf(f string, a ...any) {
 
 func (s *Server) handle(c net.Conn) {
 	defer c.Close()
+	defer func() {
+		if r := recover(); r != nil {
+			s.logf("socks handler panic: %v", r)
+		}
+	}()
 	c.SetDeadline(time.Now().Add(15 * time.Second))
 	var hdr [2]byte
 	if _, err := io.ReadFull(c, hdr[:]); err != nil || hdr[0] != 5 {

@@ -162,7 +162,7 @@ func (m *Manager) ranged(ctx context.Context, d *Download, pr probeResult, targe
 
 	var (
 		live    atomic.Int32
-		lastErr atomic.Value
+		lastErr atomic.Pointer[error] // atomic.Value would panic on differing error types
 		wake    = make(chan struct{}, 1)
 		limMu   sync.Mutex
 		limits  = map[string]*atomic.Int32{}
@@ -175,7 +175,14 @@ func (m *Manager) ranged(ctx context.Context, d *Download, pr probeResult, targe
 	}
 
 	worker := func(ch *channel.Channel, cl *http.Client, limit *atomic.Int32, slot int32) {
-		defer func() { live.Add(-1); notify() }()
+		defer func() {
+			if r := recover(); r != nil { // one broken worker must not kill the app
+				e := fmt.Errorf("internal error: %v", r)
+				lastErr.Store(&e)
+			}
+			live.Add(-1)
+			notify()
+		}()
 		cnt := d.counter(ch.Name)
 		fails := 0
 		for wctx.Err() == nil {
@@ -222,7 +229,7 @@ func (m *Manager) ranged(ctx context.Context, d *Download, pr probeResult, targe
 				}
 				continue
 			}
-			lastErr.Store(err)
+			lastErr.Store(&err)
 			if fails++; fails > 8 {
 				return
 			}
@@ -269,7 +276,7 @@ func (m *Manager) ranged(ctx context.Context, d *Download, pr probeResult, targe
 		if live.Load() == 0 {
 			// Workers can all exit while a released range is left over (e.g. the
 			// last one was shed after throttling). Restart them a few times.
-			if _, failed := lastErr.Load().(error); !failed && ctx.Err() == nil && respawns < 5 {
+			if lastErr.Load() == nil && ctx.Err() == nil && respawns < 5 {
 				respawns++
 				limMu.Lock()
 				limits = map[string]*atomic.Int32{}
@@ -280,8 +287,8 @@ func (m *Manager) ranged(ctx context.Context, d *Download, pr probeResult, targe
 				}
 			}
 			save()
-			if e, ok := lastErr.Load().(error); ok {
-				return e
+			if e := lastErr.Load(); e != nil {
+				return *e
 			}
 			if ctx.Err() != nil {
 				return ctx.Err()
