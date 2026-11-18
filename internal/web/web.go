@@ -37,6 +37,8 @@ type Server struct {
 	// restarting with admin rights and the page will reconnect).
 	TunState func() any
 	TunSet   func(on bool) (string, error)
+
+	OnQuit func() // shuts Duolink down cleanly (TUN off first)
 }
 
 type chanJSON struct {
@@ -233,6 +235,14 @@ func (s *Server) Handler() http.Handler {
 		}
 		s.changed()
 		writeJSON(w, map[string]string{"result": res})
+	})
+	mux.HandleFunc("POST /api/quit", func(w http.ResponseWriter, r *http.Request) {
+		if s.OnQuit == nil {
+			http.Error(w, "not available", http.StatusNotImplemented)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+		go func() { time.Sleep(200 * time.Millisecond); s.OnQuit() }()
 	})
 	mux.HandleFunc("POST /api/show", func(w http.ResponseWriter, r *http.Request) {
 		if s.OnShow != nil {

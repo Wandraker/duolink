@@ -128,6 +128,14 @@ func main() {
 		go func() { time.Sleep(400 * time.Millisecond); shell.Exit() }()
 		return "elevating", nil
 	}
+	ws.OnQuit = func() {
+		tunnel.Stop()
+		if shell != nil {
+			shell.Exit()
+		} else {
+			stop()
+		}
+	}
 	if *tunFlag && elevate.IsAdmin() {
 		if err := tunnel.Start(); err != nil {
 			logger.Printf("tun: %v", err)
