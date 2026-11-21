@@ -59,6 +59,7 @@ type Tunnel struct {
 	err   string
 	since time.Time
 	gen   int
+	v6    bool // the IPv6 half-default routes are in place
 }
 
 // State is shown in the panel.
@@ -126,17 +127,58 @@ func configure() error {
 			return err
 		}
 	}
-	// IPv6 is best effort: without it, IPv6 would leak past the tunnel on the
-	// phone link, but IPv4 still works.
-	for _, s := range [][]string{
-		{"interface", "ipv6", "add", "address", AdapterName, addr6 + "/64", "store=active"},
-		{"interface", "ipv6", "set", "interface", AdapterName, "metric=1"},
-		{"interface", "ipv6", "add", "route", "::/1", AdapterName, "metric=1", "store=active"},
-		{"interface", "ipv6", "add", "route", "8000::/1", AdapterName, "metric=1", "store=active"},
-	} {
-		run("netsh", s...)
-	}
+	// IPv6 is best effort; its routes come and go with syncV6.
+	run("netsh", "interface", "ipv6", "add", "address", AdapterName, addr6+"/64", "store=active")
+	run("netsh", "interface", "ipv6", "set", "interface", AdapterName, "metric=1")
 	return nil
+}
+
+// wantV6 reports whether some usable channel can carry IPv6.
+func (t *Tunnel) wantV6() bool {
+	for _, c := range t.Mgr.Usable() {
+		if c.V6 != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// syncV6 takes IPv6 into the tunnel only while a channel can carry it.
+// Without that, the tunnel would accept IPv6 connections it cannot deliver:
+// the app sees the connection open and then reset, and never falls back to
+// IPv4 (HTTPS sites with IPv6 stop loading when only the cable is left).
+// Called with t.mu held.
+func (t *Tunnel) syncV6() {
+	want := t.wantV6()
+	if want == t.v6 {
+		return
+	}
+	verb := "delete"
+	if want {
+		verb = "add"
+	}
+	for _, r := range []string{"::/1", "8000::/1"} {
+		args := []string{"interface", "ipv6", verb, "route", r, AdapterName}
+		if want {
+			args = append(args, "metric=1", "store=active")
+		}
+		run("netsh", args...)
+	}
+	t.v6 = want
+}
+
+// v6Loop follows channels appearing and disappearing.
+func (t *Tunnel) v6Loop(gen int) {
+	for {
+		time.Sleep(2 * time.Second)
+		t.mu.Lock()
+		if !t.on || t.gen != gen {
+			t.mu.Unlock()
+			return
+		}
+		t.syncV6()
+		t.mu.Unlock()
+	}
 }
 
 // waitAdapter waits until Windows lists the new interface.
@@ -186,9 +228,12 @@ func (t *Tunnel) Start() (err error) {
 	if err := configure(); err != nil {
 		return err
 	}
+	t.v6 = false
+	t.syncV6()
 	t.on, t.since = true, time.Now()
 	t.gen++
 	go t.watchdog(t.gen)
+	go t.v6Loop(t.gen)
 	return nil
 }
 
@@ -256,7 +301,7 @@ func (t *Tunnel) stopLocked() {
 		case <-time.After(3 * time.Second): // let it finish in the background
 		}
 	}
-	t.on = false
+	t.on, t.v6 = false, false
 }
 
 // removeRoutes deletes our half-default routes. Errors are ignored: the
