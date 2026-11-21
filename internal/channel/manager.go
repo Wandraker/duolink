@@ -373,19 +373,34 @@ func (m *Manager) Pick(key string) *Channel {
 	return ch
 }
 
+// idleShare is the lowest weight a link gets, as a share of the best one.
+const idleShare = 1.0 / 3
+
 func weighted(cs []*Channel) *Channel {
 	if len(cs) == 1 {
 		return cs[0]
 	}
+	// An idle link's peak decays while the busy one keeps winning new
+	// connections, so it never gets a chance to show its speed. Every link
+	// gets at least a third of the best link's weight.
 	ws := make([]float64, len(cs))
-	var sum float64
+	var top float64
 	for i, c := range cs {
-		w := c.Capacity()
-		if w < minWeight {
-			w = minWeight
+		ws[i] = c.Capacity()
+		if ws[i] > top {
+			top = ws[i]
 		}
-		ws[i] = w
-		sum += w
+	}
+	floor := top * idleShare
+	if floor < minWeight {
+		floor = minWeight
+	}
+	var sum float64
+	for i, w := range ws {
+		if w < floor {
+			ws[i] = floor
+		}
+		sum += ws[i]
 	}
 	r := rand.Float64() * sum
 	for i, w := range ws {

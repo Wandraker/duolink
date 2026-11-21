@@ -38,3 +38,20 @@ func TestPickBurstSpreads(t *testing.T) {
 		t.Fatalf("burst stuck to one channel: A=%d B=%d", seen[a], seen[b])
 	}
 }
+
+// A link that sat idle (its peak decayed) still gets a fair share of new
+// connections instead of starving next to a busy one.
+func TestWeightedIdleLinkNotStarved(t *testing.T) {
+	_, a, b := testManager()
+	a.peak = 12e3 // idle cable, peak decayed to 12 KB/s
+	b.peak = 25e6 // busy phone, 25 MB/s
+	n := 0
+	for i := 0; i < 4000; i++ {
+		if weighted([]*Channel{a, b}) == a {
+			n++
+		}
+	}
+	if share := float64(n) / 4000; share < 0.18 {
+		t.Fatalf("idle link got %.1f%% of connections", share*100)
+	}
+}
