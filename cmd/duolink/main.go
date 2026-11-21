@@ -25,7 +25,7 @@ import (
 	"github.com/Wandraker/duolink/internal/web"
 )
 
-var version = "0.2.1"
+var version = "0.2.2"
 
 func defaultDir() string {
 	if h, err := os.UserHomeDir(); err == nil {

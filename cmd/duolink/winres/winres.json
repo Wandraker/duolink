@@ -5,7 +5,7 @@
   "RT_MANIFEST": {
     "#1": {
       "0409": {
-        "identity": { "name": "Duolink", "version": "0.2.1.0" },
+        "identity": { "name": "Duolink", "version": "0.2.2.0" },
         "description": "Duolink",
         "minimum-os": "win10",
         "execution-level": "as invoker",
@@ -17,7 +17,7 @@
   "RT_VERSION": {
     "#1": {
       "0000": {
-        "fixed": { "file_version": "0.2.1.0", "product_version": "0.2.1.0" },
+        "fixed": { "file_version": "0.2.2.0", "product_version": "0.2.2.0" },
         "info": {
           "0409": {
             "ProductName": "Duolink",
@@ -25,8 +25,8 @@
             "CompanyName": "Wandraker",
             "LegalCopyright": "© 2026 Wandraker. GPL-3.0",
             "OriginalFilename": "duolink.exe",
-            "ProductVersion": "0.2.1",
-            "FileVersion": "0.2.1"
+            "ProductVersion": "0.2.2",
+            "FileVersion": "0.2.2"
           }
         }
       }
