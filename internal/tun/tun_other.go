@@ -19,3 +19,7 @@ type State struct {
 func (t *Tunnel) State() State { return State{} }
 func (t *Tunnel) Start() error { return errors.New("TUN mode is only available on Windows") }
 func (t *Tunnel) Stop()        {}
+
+func (t *Tunnel) Reconnect() (int, error) {
+	return 0, errors.New("TUN mode is only available on Windows")
+}

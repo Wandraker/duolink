@@ -37,6 +37,9 @@ type Server struct {
 	// restarting with admin rights and the page will reconnect).
 	TunState func() any
 	TunSet   func(on bool) (string, error)
+	// TunReconnect closes connections opened before TUN mode so programs
+	// reconnect through it; returns how many were closed.
+	TunReconnect func() (int, error)
 
 	OnQuit func() // shuts Duolink down cleanly (TUN off first)
 }
@@ -236,6 +239,18 @@ func (s *Server) Handler() http.Handler {
 		}
 		s.changed()
 		writeJSON(w, map[string]string{"result": res})
+	})
+	mux.HandleFunc("POST /api/tun/reconnect", func(w http.ResponseWriter, r *http.Request) {
+		if s.TunReconnect == nil {
+			http.Error(w, "not available", http.StatusNotImplemented)
+			return
+		}
+		n, err := s.TunReconnect()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, map[string]int{"closed": n})
 	})
 	mux.HandleFunc("POST /api/quit", func(w http.ResponseWriter, r *http.Request) {
 		if s.OnQuit == nil {

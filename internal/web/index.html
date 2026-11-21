@@ -146,6 +146,8 @@ button,input{font:inherit;color:inherit}
 .tunbox .st{margin-top:10px;font-size:13px;color:var(--dim)}
 .tunbox .st.on{color:var(--ok)}
 .tunbox .st.bad{color:var(--bad)}
+.tunre{display:flex;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
+.tunre small{color:var(--faint);font-size:12px;max-width:52ch}
 .tunbox.on{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
 .badge{font-size:12px;font-weight:600;color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 50%,transparent);
   border-radius:999px;padding:2px 9px}
@@ -235,6 +237,10 @@ ol.steps b{color:var(--text);font-weight:600}
         <h3 data-t="tunT"></h3>
         <p data-t="tunP"></p>
         <div class="st" id="tunState"></div>
+        <div class="tunre" id="tunRe" hidden>
+          <button class="btn s" id="tunReBtn" type="button" data-t="reBtn"></button>
+          <small data-t="reHint"></small>
+        </div>
       </div>
       <span class="sw"><input type="checkbox" id="tun" aria-label=""><i></i></span>
     </div>
@@ -281,7 +287,7 @@ ru:{mergeLbl:"Объединение",on:"включено",off:"выключе�
   noCh:"Duolink не видит подключений к интернету. Подключите кабель, Wi-Fi или телефон в режиме USB-модема.",
   oneCh:"Сейчас работает одно подключение. Подключите второе, например телефон по USB, и Duolink сам добавит его.",
   mergeOffNote:"Объединение выключено: весь трафик идёт через самый быстрый канал, как без Duolink.",
-  idle:"ждёт трафика",reserve:"в запасе",tunT:"Все программы через Duolink",tunP:"Duolink создаёт виртуальный сетевой адаптер, и через все каналы идут Hydra, Steam, игры и вообще любые программы, без настройки. Нужны права администратора: Windows спросит разрешение.",tunOn:"Включено: весь трафик компьютера идёт через Duolink",tunOff:"Выключено: через Duolink идут только загрузки здесь и программы с прокси",tunElev:"Перезапускаю Duolink с правами администратора. Подтвердите запрос Windows.",tunNo:"Windows не дала прав администратора, режим не включён.",tunBadge:"все программы",pxOr:"Или прокси для отдельных программ",down:"нет связи",disabled:"выключен",ping:"пинг",share:"доля",speed:"скорость",got:"принято",ms:"мс",
+  idle:"ждёт трафика",reserve:"в запасе",tunT:"Все программы через Duolink",tunP:"Duolink создаёт виртуальный сетевой адаптер, и через все каналы идут Hydra, Steam, игры и вообще любые программы, без настройки. Нужны права администратора: Windows спросит разрешение.",tunOn:"Включено: весь трафик компьютера идёт через Duolink",tunOff:"Выключено: через Duolink идут только загрузки здесь и программы с прокси",tunElev:"Перезапускаю Duolink с правами администратора. Подтвердите запрос Windows.",tunNo:"Windows не дала прав администратора, режим не включён.",tunBadge:"все программы",reBtn:"Переподключить программы",reHint:"Программы, которые уже качали до включения, идут в обход Duolink. Кнопка оборвёт их соединения, они сразу подключатся заново, уже через все каналы.",reDone:"Переподключено соединений: ",reNone:"Нечего переподключать: все программы уже идут через Duolink",pxOr:"Или прокси для отдельных программ",down:"нет связи",disabled:"выключен",ping:"пинг",share:"доля",speed:"скорость",got:"принято",ms:"мс",
   queued:"В очереди",connecting:"Подключаюсь к серверу",running:"Качается",paused:"На паузе",pause:"Пауза",resume:"Продолжить",retry:"Повторить",remove:"Убрать",done:"Готово",failed:"Ошибка",canceled:"Отменено",
   showFile:"Показать в папке",cancel:"Отменить",left:"осталось",single:"Сервер отдаёт файл одним потоком, поэтому он идёт через один канал.",
   pxTitle:"Прокси для других программ",
@@ -300,7 +306,7 @@ en:{mergeLbl:"Combining",on:"on",off:"off",unitNow:"Mbit/s right now",tabDl:"Dow
   noCh:"Duolink sees no internet connections. Plug in a cable, join Wi-Fi or connect a phone in USB tethering mode.",
   oneCh:"One connection is working. Add a second one, such as a phone over USB, and Duolink picks it up on its own.",
   mergeOffNote:"Combining is off: all traffic uses the fastest connection, as if Duolink were not running.",
-  idle:"waiting for traffic",reserve:"in reserve",tunT:"All apps through Duolink",tunP:"Duolink adds a virtual network adapter, so Hydra, Steam, games and any other app use all your connections with no setup. Needs administrator rights: Windows will ask.",tunOn:"On: all of this computer's traffic goes through Duolink",tunOff:"Off: only downloads here and apps set to the proxy use Duolink",tunElev:"Restarting Duolink with administrator rights. Approve the Windows prompt.",tunNo:"Windows did not grant administrator rights, so the mode stays off.",tunBadge:"all apps",pxOr:"Or a proxy for single apps",down:"no connection",disabled:"turned off",ping:"ping",share:"share",speed:"speed",got:"received",ms:"ms",
+  idle:"waiting for traffic",reserve:"in reserve",tunT:"All apps through Duolink",tunP:"Duolink adds a virtual network adapter, so Hydra, Steam, games and any other app use all your connections with no setup. Needs administrator rights: Windows will ask.",tunOn:"On: all of this computer's traffic goes through Duolink",tunOff:"Off: only downloads here and apps set to the proxy use Duolink",tunElev:"Restarting Duolink with administrator rights. Approve the Windows prompt.",tunNo:"Windows did not grant administrator rights, so the mode stays off.",tunBadge:"all apps",reBtn:"Reconnect apps",reHint:"Apps that were already downloading before you turned this on bypass Duolink. This drops their connections; they reconnect at once, through all your links.",reDone:"Connections reconnected: ",reNone:"Nothing to reconnect: every app already goes through Duolink",pxOr:"Or a proxy for single apps",down:"no connection",disabled:"turned off",ping:"ping",share:"share",speed:"speed",got:"received",ms:"ms",
   queued:"Queued",connecting:"Connecting to the server",running:"Downloading",paused:"Paused",pause:"Pause",resume:"Resume",retry:"Retry",remove:"Remove",done:"Done",failed:"Failed",canceled:"Canceled",
   showFile:"Show in folder",cancel:"Cancel",left:"left",single:"The server sends this file as one stream, so it uses one connection.",
   pxTitle:"Proxy for other apps",
@@ -395,7 +401,7 @@ function render(force){
   $("tun").checked=!!tn.on;
   $("tun").disabled=!S.tun_available;
   $("tunBox").classList.toggle("on",!!tn.on);
-  $("tunBadge").hidden=!tn.on;$("tunBadge").textContent=t("tunBadge");
+  $("tunBadge").hidden=!tn.on;$("tunRe").hidden=!tn.on;$("tunBadge").textContent=t("tunBadge");
   if(!tunMsg){const st=$("tunState");
     st.className="st"+(tn.error?" bad":tn.on?" on":"");
     st.textContent=tn.error?tn.error:t(tn.on?"tunOn":"tunOff")}
@@ -473,6 +479,12 @@ function render(force){
 
 // events
 $("merge").onchange=async e=>{try{await post("/api/merge",{on:e.target.checked})}catch(err){}tick()};
+$("tunReBtn").onclick=async e=>{
+  const b=e.currentTarget,st=$("tunState");b.disabled=true;tunMsg="re";
+  try{const r=await post("/api/tun/reconnect");st.className="st on";
+    st.textContent=r.closed?t("reDone")+r.closed:t("reNone")}
+  catch(err){st.className="st bad";st.textContent=err.message}
+  setTimeout(()=>{tunMsg="";b.disabled=false},5000)};
 $("tun").onchange=async e=>{
   const on=e.target.checked,st=$("tunState");
   try{const r=await post("/api/tun",{on});

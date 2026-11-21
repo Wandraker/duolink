@@ -108,6 +108,7 @@ func main() {
 	defer tunnel.Stop() // always give routing back on exit
 	var shell *app.Shell
 	ws.TunState = func() any { return tunnel.State() }
+	ws.TunReconnect = tunnel.Reconnect
 	ws.TunSet = func(on bool) (string, error) {
 		if !on {
 			tunnel.Stop()
