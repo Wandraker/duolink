@@ -91,7 +91,17 @@ func (m *Manager) Usable() []*Channel {
 type stickyEntry struct {
 	ch   *Channel
 	seen time.Time
+	// burst counts connections to the key opened within burstWindow of each
+	// other. A burst is a parallel download (Steam, launchers, segmented
+	// downloaders), and its extra connections are spread over all channels.
+	burst      int
+	burstStart time.Time
 }
+
+const (
+	burstWindow = 3 * time.Second
+	burstSticky = 2 // connections of a burst that still follow the sticky channel
+)
 
 func NewManager() *Manager {
 	m := &Manager{
@@ -328,19 +338,28 @@ const minWeight = 1 << 20 // 1 MB/s
 
 // Pick chooses a channel for a new connection to key (host or IP). The same
 // key keeps the same channel while it stays healthy, so sites that tie a
-// session to the client IP keep working.
+// session to the client IP keep working. When many connections to one key
+// open at once (a parallel download), the extra ones are spread by weight.
 func (m *Manager) Pick(key string) *Channel {
 	usable := m.Usable()
 	if len(usable) == 0 {
 		return nil
 	}
+	now := time.Now()
 	if key != "" {
 		m.stickyMu.Lock()
 		e, ok := m.sticky[key]
 		if ok && m.alive(e.ch) && contains(usable, e.ch) {
-			e.seen = time.Now()
+			e.seen = now
+			if now.Sub(e.burstStart) > burstWindow {
+				e.burst, e.burstStart = 0, now
+			}
+			e.burst++
 			m.sticky[key] = e
 			m.stickyMu.Unlock()
+			if e.burst > burstSticky && len(usable) > 1 {
+				return weighted(usable)
+			}
 			return e.ch
 		}
 		m.stickyMu.Unlock()
@@ -348,7 +367,7 @@ func (m *Manager) Pick(key string) *Channel {
 	ch := weighted(usable)
 	if key != "" {
 		m.stickyMu.Lock()
-		m.sticky[key] = stickyEntry{ch: ch, seen: time.Now()}
+		m.sticky[key] = stickyEntry{ch: ch, seen: now, burst: 1, burstStart: now}
 		m.stickyMu.Unlock()
 	}
 	return ch
